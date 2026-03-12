@@ -10,7 +10,10 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func fetchFeed(ctx context.Context, feedURL string) (*models.RSSFeed, error) {
@@ -76,13 +79,48 @@ func scrapeFeeds(s *state) {
 		fmt.Errorf("failed to fetch feed: %w", err)
 		return
 	}
+	// save the all the feed item as posts in the database
+	for _, itemFeed := range rssFeed.Channel.Item {
 
-	// print in the console
-	fmt.Printf("Found feed: %s\n", feed.Name)
-	for _, item := range rssFeed.Channel.Item {
-		fmt.Printf("* %s - published at %s \n", item.Title, item.PubDate)
-		fmt.Printf("%s\n", item.Link)
-		fmt.Printf(" %s\n", item.Description)
+		// Convert Description to sql.NullString
+		description := sql.NullString{
+			String: itemFeed.Description,
+			Valid:  itemFeed.Description != "",
+		}
+
+		// Convert PubDate to sql.NullTime
+		var publishedAt sql.NullTime
+		if itemFeed.PubDate != "" {
+			t, err := time.Parse(time.RFC1123, itemFeed.PubDate)
+			if err == nil {
+				publishedAt = sql.NullTime{
+					Time:  t,
+					Valid: true,
+				}
+			} else {
+				publishedAt = sql.NullTime{Valid: false}
+			}
+		} else {
+			publishedAt = sql.NullTime{Valid: false}
+		}
+
+		if _, err := s.db.CreatePost(context.Background(), database.CreatePostParams{
+			ID:          uuid.New(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			FeedID:      feed.ID,
+			Title:       itemFeed.Title,
+			Url:         itemFeed.Link,
+			Description: description,
+			PublishedAt: publishedAt,
+		}); err != nil {
+			// if error is a duplicate, ignore it and continue
+			if !strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+				fmt.Errorf("failed to save feed: %w", err)
+			}
+			// else continue if not fatal
+			continue
+		}
 	}
-	fmt.Println("========================================")
+
 }

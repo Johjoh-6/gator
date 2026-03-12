@@ -228,3 +228,30 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 
 	return nil
 }
+
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	limit := int32(2)
+	if len(cmd.args) > 0 {
+		// get the limit from the command line argument
+		_, err := fmt.Sscanf(cmd.args[0], "%d", &limit)
+		if err != nil {
+			return fmt.Errorf("invalid limit: %w", err)
+		}
+	}
+
+	posts, err := s.db.GetPostForUser(context.Background(), database.GetPostForUserParams{
+		UserID: user.ID,
+		Limit:  limit,
+	})
+	if err != nil {
+		return fmt.Errorf("couldn't get posts: %w", err)
+	}
+	for _, post := range posts {
+		fmt.Printf("%s - published at %s \n", post.Title, post.PublishedAt.Time)
+		fmt.Printf("%s\n", post.Url)
+		fmt.Printf(" %s\n", post.Description.String)
+		fmt.Println("========================================")
+	}
+
+	return nil
+}
