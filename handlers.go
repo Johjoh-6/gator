@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"gator/internal/database"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,20 +88,42 @@ func handlerUsers(s *state, cmd command) error {
 }
 
 func handlerAggregator(s *state, cmd command) error {
-	// if len(cmd.args) < 1 {
-	// 	return fmt.Errorf("URL required")
-	// }
-	// url := cmd.args[0]
-	url := "https://www.wagslane.dev/index.xml"
+	timeBetweenReqs := 1 * time.Minute
 
-	feed, err := fetchFeed(context.Background(), url)
-	if err != nil {
-		return fmt.Errorf("couldn't fetch feed: %w", err)
+	if len(cmd.args) > 0 {
+		input := cmd.args[0]
+		// split input to take number and unit can be s, m or h
+		parts := strings.Split(input, "")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid time interval: %s", cmd.args[0])
+		}
+		num := parts[0]
+		unit := parts[1]
+
+		// convert num to int
+		numInt, err := strconv.Atoi(num)
+		if err != nil {
+			return fmt.Errorf("invalid time interval: %s", cmd.args[0])
+		}
+		// convert unit to time.Duration
+		switch unit {
+		case "s":
+			timeBetweenReqs = time.Duration(numInt) * time.Second
+		case "m":
+			timeBetweenReqs = time.Duration(numInt) * time.Minute
+		case "h":
+			timeBetweenReqs = time.Duration(numInt) * time.Hour
+		default:
+			return fmt.Errorf("invalid time interval: %s", cmd.args[0])
+		}
 	}
 
-	fmt.Printf("%v", feed)
+	fmt.Printf("Collecting feeds every %v\n", timeBetweenReqs)
 
-	return nil
+	ticker := time.NewTicker(timeBetweenReqs)
+	for ; ; <-ticker.C {
+		scrapeFeeds(s)
+	}
 }
 
 func handlerAddFeed(s *state, cmd command, user database.User) error {
